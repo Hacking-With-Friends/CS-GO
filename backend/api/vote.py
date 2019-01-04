@@ -35,7 +35,7 @@ class protocol:
 			team_2 = gen_UID()
 			session = gen_UID()
 
-			sessions[session] = {1 : team_1, 2 : team_2, 'turn' : 1, 'bans' : [], 'picks' : []}
+			sessions[session] = {1 : team_1, 2 : team_2, 'turn' : 1, 'state' : 1, 'bans' : [], 'picks' : []}
 			teams[team_1] = {'sessions' : [session], 'sockets' : [], 'name' : data['team_1']}
 			teams[team_2] = {'sessions' : [session], 'sockets' : [], 'name' : data['team_2']}
 
@@ -51,7 +51,9 @@ class protocol:
 			payload = {}
 			print(sessions)
 			for session in sessions:
-				payload[quote_plus(session)] = {'team_1' : {'name' : teams[sessions[session][1]]['name'], 'id' : sessions[session][1]}, 'team_2' : {'name' : teams[sessions[session][2]]['name'], 'id' : sessions[session][1]}}
+				payload[quote_plus(session)] = {'team_1' : {'name' : teams[sessions[session][1]]['name'], 'id' : sessions[session][1]},
+												'team_2' : {'name' : teams[sessions[session][2]]['name'], 'id' : sessions[session][1]},
+												'votes' : {'bans' : sessions[session]['bans'], 'picks' : sessions[session]['picks']}}
 			return {'state' : 'success', 'all_sessions' : payload}
 
 		if 'team' in data and 'session' in data:
@@ -60,19 +62,39 @@ class protocol:
 				print(teams)
 				return {'state' : 'failed', 'msg' : 'No such team: ' + data['team']}
 			if not data['session'] in sessions:
+				print('Sessions not in sessions:')
 				print(sessions)
 				return {'state' : 'failed', 'msg' : 'No such session: ' + data['session']}
 
-			if not 'ban' in data or 'pick' in data:
+			if not 'ban' in data and 'pick' not in data:
 				sockets[data['team']] = fileno
-				return {'state' : 'success', 'msg' : 'Welcome team {}'.format(data['team'])}
+				for team_index in [1,2]:
+					team_id = sessions[data['session']][team_index]
+					if team_id == data['team']: continue
+
+					if team_id in sockets:
+						team_fileno = sockets[team_id]
+						clients[team_fileno]['socket'].ws_send({'state' : 'success', 'action' : 'joined', 'msg' : 'The other team has arrived!'})
+
+				return {'state' : 'success', 'msg' : 'Welcome team {}'.format(data['team']), 'history' : {'bans' : sessions[data['session']]['bans'], 'picks' : sessions[data['session']]['picks'], 'state' : sessions[data['session']]['state']}}
 			else:
-				if 'ban' in data: action = 'ban'
-				else: action = 'pick'
+				s = sessions[data['session']]
+				if s['state'] in (1, 2, 5, 6):
+					action = 'ban'
+				elif s['state'] in (3, 4, 7):
+					action = 'pick'
+
+				next_state = 'done'
+				if s['state']+1 in (1, 2, 5, 6):
+					next_state = 'ban'
+				elif s['state']+1 in (3, 4, 7):
+					next_state = 'pick'
+
+				if not action in data:
+					return {'state' : 'failed', 'msg' : 'Oi oi, Wrong action for this turn! You\'ve been noticed!'}
 
 				for team_index in [1,2]:
 					team_id = sessions[data['session']][team_index]
-					print('Team id:', team_id, team_id in sockets)
 					if not team_id in sockets:
 						return {'state' : 'failed', 'action' : action, 'msg' : 'The other team isn\'t here yet.'}
 
@@ -83,12 +105,15 @@ class protocol:
 					if sessions[data['session']]['turn'] == 1: sessions[data['session']]['turn'] = 2
 					else: sessions[data['session']]['turn'] = 1
 
+					s['state'] += 1
+
 					for team_index in [1,2]:
 						team_id = sessions[data['session']][team_index]
 						team_fileno = sockets[team_id]
-						clients[team_fileno]['socket'].ws_send({'state' : 'success', 'action' : action, 'msg' : 'Map was banned!', 'map' : data[action]})
+						clients[team_fileno]['socket'].ws_send({'state' : 'success', 'action' : action, 'next' : next_state, 'msg' : 'Map was {}!'.format(action), 'map' : data[action]})
 
-					sessions[data['session']]['bans'].append(data[action])
-					return {'state' : 'success', 'action' : action, 'msg' : 'It was your turn! good! :D'}
+
+					sessions[data['session']][action+'s'].append(data[action])
+					return {'state' : 'success', 'msg' : 'It was your turn! good! :D'}
 				else:
 					return {'state' : 'failed', 'action' : action, 'msg' : 'Not your turn to vote.'}

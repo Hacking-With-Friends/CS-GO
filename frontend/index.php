@@ -60,15 +60,24 @@
 						margin: 5px;
 					}
 
-					.picked_map {
-						margin-bottom: 20px;
+					.banned_map {
+						border: 1px solid #FF0000;
 					}
 
-					.picked_map:nth-child(even) {
+					.picked_map {
+						border: 1px solid #00FF00;
+					}
+
+					.selected_map {
+						margin-bottom: 20px;
+						cursor: default;
+					}
+
+					.selected_map:nth-child(even) {
 						margin-left: 130px;
 					}
 
-					.picked_map:nth-child(odd) {
+					.selected_map:nth-child(odd) {
 						margin-right: 130px;
 					}
 					
@@ -136,6 +145,22 @@
 					border: 1px solid #FF0000;
 				}
 
+			.picked {
+				position: relative;
+				cursor: default;
+			}
+
+			.picked:after {
+				position: absolute;
+				content:"";
+				top:0;
+				left:0;
+				width:100%;
+				height:100%;
+				opacity: .5;
+				background-color: green;
+			}
+
 			.banned {
 				position: relative;
 				cursor: default;
@@ -183,6 +208,9 @@
 			var timers = {};
 			let mouse = {};
 			let sprites = {};
+			let next_action = ban;
+
+			let vote_order = ['ban', 'ban', 'pick', 'pick', 'ban', 'ban', 'pick', 'done'];
 
 			let socket = new WebSocket("wss://voting.hvornum.se/");
 
@@ -194,18 +222,90 @@
 				console.log('Message from server: ', event.data);
 				response = JSON.parse(event.data);
 
+
 				if(typeof response['state'] !== 'undefined' && response['state'] == 'failed') {
 					notify("Error", response['msg'], true);
 					return
 				}
 
+				if(typeof response['history'] !== 'undefined') {
+
+					let map_cluster = response['history']['picks'].concat(response['history']['bans']);
+					let pos_bans = 0;
+					let pos_picks = 0;
+
+
+					let map_name = '';
+					for(let i=0; i<map_cluster.length; i++) {
+						if(vote_order[i] == 'ban') {
+							map_name = response['history']['bans'][pos_bans];
+							pos_bans++;
+						} else {
+							map_name = response['history']['picks'][pos_picks];
+							pos_picks++;
+						}
+
+						bans += 1;
+						let m = document.createElement('div');
+						m.id = map_name;
+						if(vote_order[i] == 'ban')
+							m.classList = 'map selected_map banned_map';
+						else
+							m.classList = 'map selected_map picked_map';
+						document.getElementById('orders').appendChild(m);
+
+						let clicked = document.getElementById(map_name);
+						if(vote_order[i] == 'ban')
+							clicked.classList = clicked.classList + ' banned';
+						else
+							clicked.classList = clicked.classList + ' picked';
+
+						// Remove the event listener for 'click' events.
+						var new_element = clicked.cloneNode(true);
+						clicked.parentNode.replaceChild(new_element, clicked);
+
+						if (vote_order[i+1] == 'ban')
+							next_action = ban;
+						else
+							next_action = pick;
+					}
+				}
+
 				if(typeof response['action'] !== 'undefined') {
-					if(response['action'] == 'ban' && response['state'] == 'success') {
+					if(response['action'] == 'joined') {
+						notify("Ready!", response['msg']);
+					} else if(response['action'] == 'ban' && response['state'] == 'success') {
+						if (response['next'] == 'ban')
+							next_action = ban;
+						else
+							next_action = pick;
+
 						if(typeof response['map'] !== 'undefined') {
 							bans += 1;
 							let m = document.createElement('div');
 							m.id = response['map'];
-							m.classList = 'map picked_map';
+							m.classList = 'map selected_map banned_map';
+							document.getElementById('orders').appendChild(m);
+
+							let clicked = document.getElementById(response['map'])
+							clicked.classList = clicked.classList + ' banned';
+
+							// Remove the event listener for 'click' events.
+							var new_element = clicked.cloneNode(true);
+							clicked.parentNode.replaceChild(new_element, clicked);
+						}
+					} else if (response['action'] == 'pick' && response['state'] == 'success') {
+						if (response['next'] == 'ban')
+							next_action = ban;
+						else
+							next_action = pick;
+
+						if(typeof response['map'] !== 'undefined') {
+							bans += 1;
+
+							let m = document.createElement('div');
+							m.id = response['map'];
+							m.classList = 'map selected_map picked_map';
 							document.getElementById('orders').appendChild(m);
 
 							let clicked = document.getElementById(response['map'])
@@ -322,7 +422,7 @@
 			}
 
 			function pick(map_name) {
-
+				socket.send(JSON.stringify({"pick": map_name, "session": session, "team": team_id}));
 			}
 
 			function getDivChildren(node) {
@@ -343,13 +443,12 @@
 						for(let map_index in maps) {
 							let map_name = maps[map_index].id;
 							if(map_name.substring(0, 3) == 'de_') {
-								console.log('Found map: ' + map_name);
 								if(divs[div_index].classList == 'bans') {
 									maps[map_index].addEventListener('click', function() {
 										if(bans >= 6)
 											return;
 
-										ban(map_name);
+										next_action(map_name);
 									})
 								}
 							}

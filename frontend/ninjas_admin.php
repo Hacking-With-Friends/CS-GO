@@ -62,7 +62,11 @@
 
 						if(typeof response['all_sessions'] !== 'undefined') {
 							for(let session_index in response['all_sessions']) {
-								content += '<a href="http://mapvote.ninjat.se/ninjas_admin.php?session='+session_index+'">'+response['all_sessions'][session_index]['team_1']['name'] + ' vs ' + response['all_sessions'][session_index]['team_2']['name'] + '</a><br>';
+								let team_1_name = response['all_sessions'][session_index]['team_1']['name'];
+								let team_2_name = response['all_sessions'][session_index]['team_2']['name'];
+								let votes = response['all_sessions'][session_index]['votes'];
+
+								content += '<a href="http://mapvote.ninjat.se/ninjas_admin.php?session='+session_index+'">' + team_1_name + ' vs ' + team_2_name + '</a> (Votes: '+(votes['bans'].length+votes['picks'].length)+') ['+votes['picks'].join(' -> ')+']<br>';
 							}
 							document.getElementById('content').innerHTML = content;
 						}
@@ -74,14 +78,33 @@
 				});
 
 				document.getElementById('send').addEventListener('click', function() {
-					socket.send(JSON.stringify({"admin" : "yes", "ninjat_create" : "ofcourse", "session" : session, "team_1" : document.getElementById('team_1').value, "team_2" : document.getElementById('team_2').value}));
+					socket.send(JSON.stringify({"admin" : "yes", "ninjat_create" : "ofcourse", "session" : session, "team_1" : document.getElementById('team_1').value, "team_2" : document.getElementById('team_2').value, 'map_pool' : document.getElementById('map_pool').value}));
 					
 
 					socket.addEventListener('message', function (event) {
 						console.log('Message from server: ', event.data);
 						response = JSON.parse(event.data);
 
-						document.getElementById('content').innerHTML = response['team_1'] + ': http://mapvote.ninjat.se/?session='+response['session']+'&team_id=' + response['teams']['1'] + '<br><br>' + response['team_2'] + ': http://mapvote.ninjat.se/?session='+response['session']+'&team_id=' + response['teams']['2'] + '<br><br><br><br>Admins: http://mapvote.ninjat.se/ninjas_admin.php?session='+response['session']
+						let data = '';
+
+						data += 'Ni möter '+response['team_2']+' och **ni börjar** att rösta när andra laget kommer in.<br>';
+						data += ' * Det går **INTE** att ångra en ban/pick.<br>';
+						data += ' * Varannat lag röstar och ordningen är: Ban, Ban, Pick, Pick, Ban, Ban *(och sista kartan blir automatiskt avgörande kartan)*<br>';
+						data += '<br>';
+						data += response['team_1'] + ': http://mapvote.ninjat.se/?session='+response['session']+'&team_id=' + response['teams']['1'];
+
+						data += '<br><br><br><br><br><br>';
+
+						data += 'Ni möter '+response['team_1']+' och **dom börjar** att rösta.<br>';
+						data += '<br>';
+						data += ' * Det går **INTE** att ångra en ban/pick.<br>';
+						data += ' * Varannat lag röstar och ordningen är: Ban, Ban, Pick, Pick, Ban, Ban *(och sista kartan blir automatiskt avgörande kartan)*<br>';
+						data += '<br>';
+						data += response['team_2'] + ': http://mapvote.ninjat.se/?session='+response['session']+'&team_id=' + response['teams']['2'];
+						
+						data += '<br><br><br><br><br><br>Admins: http://mapvote.ninjat.se/ninjas_admin.php?session='+response['session'];
+
+						document.getElementById('content').innerHTML = data;
 					});
 				})
 			}
@@ -91,6 +114,7 @@
 	<body>
 		<input type="text" name="team_1" id="team_1" placeholder="Team #1 name"><br>
 		<input type="text" name="team_2" id="team_2" placeholder="Team #2 name"><br>
+		<input type="text" name="map_pool" id="map_pool" value="5v5-3"><br>
 		<input type="submit" id="send" value="Generate links"><br>
 		<br>
 		<input type="text" name="cmd" id="cmd" placeholder="Custom command..."><br>
